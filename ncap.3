@@ -1,0 +1,316 @@
+.\" $Id$
+.\"
+.\" Copyright (c) 2007 by Internet Systems Consortium, Inc. ("ISC")
+.\"
+.\" Permission to use, copy, modify, and/or distribute this software for any
+.\" purpose with or without fee is hereby granted, provided that the above
+.\" copyright notice and this permission notice appear in all copies.
+.\"
+.\" THE SOFTWARE IS PROVIDED "AS IS" AND ISC DISCLAIMS ALL WARRANTIES
+.\" WITH REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED WARRANTIES OF
+.\" MERCHANTABILITY AND FITNESS.  IN NO EVENT SHALL ISC BE LIABLE FOR
+.\" ANY SPECIAL, DIRECT, INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES
+.\" WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN
+.\" ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT
+.\" OF OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
+.\"
+.Dd August, 2007
+.Dt NCAP 3
+.Os
+.Sh NAME
+.Nm ncap
+.Nd "network data capture"
+.Sh SYNOPSIS
+.In ncap.h
+.Ft ncap_t
+.Fn ncap_create "int maxmsgsize"
+.Sh DESCRIPTION
+The
+.Nm ncap
+library is a high level interface for network data capture.  The source of
+network data can be either live traffic or files containing previously
+captured or generated data.  Files can be in
+.Nm ncap
+format, as defined below, or in
+.Xr pcap 3
+format, and can be either normal binary files or network sockets.
+.Pp
+The
+.Fn ncap_create
+function returns a new
+.Nm ncap
+object (structure) having various methods (function pointers) which can be
+referenced to add data sources, poll for data, loop while collecting data,
+and so on.
+.Fa maxmsgsize
+is the size of the largest message (in portable binary export format) you
+are expecting to handle, usually this is 70000, to allow for a 64Kbyte
+payload plus
+.Nm ncap
+message header overhead.
+.Fn ncap_create
+returns
+.Dv NULL
+if an error occurs, in which case
+.Va errno
+will be set to indicate the error cause.
+.Pp
+The
+.Ft ncap_t
+data structure is defined in the
+.In ncap.h
+include file, which defines at least the following symbols:
+.Bd -literal -offset indent
+typedef enum { ncap_success = 0, ncap_failure } ncap_result_e;
+typedef void (*ncap_callback_t)(ncap_t, void *, ncap_msg_ct);
+typedef struct ncap *ncap_t;
+struct ncap {
+	char *		errstr;
+	ncap_result_e	(*add_if)(ncap_t, const char *name,
+				  const char *bpf, int promisc,
+				  const int vlans[], int nvlan,
+				  int *fdes);
+	ncap_result_e	(*drop_if)(ncap_t, int fdes);
+	ncap_result_e	(*add_nf)(ncap_t, int fdes, const char *);
+	ncap_result_e	(*drop_nf)(ncap_t, int fdes);
+	ncap_result_e	(*add_pf)(ncap_t, FILE *, const char *);
+	ncap_result_e	(*drop_pf)(ncap_t, FILE *);
+	ncap_result_e	(*add_dg)(ncap_t, int fdes);
+	ncap_result_e	(*drop_dg)(ncap_t, int fdes);
+	ncap_result_e	(*filter)(ncap_t, const char *);
+	ncap_result_e	(*collect)(ncap_t, int polling,
+				   ncap_callback_t,
+				   void *closure);
+	void		(*stop)(ncap_t);
+	struct ncap_msg	(*cons)(ncap_t, struct timespec,
+			        unsigned, unsigned,
+			        ncap_np_e, ncap_np_ct,
+			        ncap_tp_e, ncap_tp_ct,
+			        size_t, const u_char *);
+	int		(*match)(ncap_t, ncap_msg_ct);
+	ncap_result_e	(*write)(ncap_t, ncap_msg_ct, int fdes);
+	ncap_result_e	(*fwrite)(ncap_t, ncap_msg_ct, FILE *);
+	ncap_result_e	(*send)(ncap_t, ncap_msg_ct, int fdes,
+				int flags);
+	void		(*destroy)(ncap_t);
+};
+.Ed
+.Pp
+The elements of
+.Ft ncap_t
+are defined as follows:
+.Bl -tag -width "watch_fd"
+.It Va errstr
+A pointer to a text string describing the most recent error condition.
+If no error has occurred, this string will be empty, but never
+.Dv NULL .
+.It Va add_if
+Adds a network interface as a data source.  Interface naming rules are as in
+.Xr pcap 3 .
+A
+.Xr bpf 4
+program (in text form) can be provided in order to filter the data source in
+the kernel and thus reduce the amount of data collected by this object.  It
+is an error to specify a non-NULL bpf program if an NCAP
+.Va filter
+has been installed.  The interface can be made promiscuous, in which case it
+is eligible to receive data for which this system is neither the source or
+destination, if the attached network and interface support this mode.  A list
+of VLANs can be provided in which case tagged 802.1Q frames are eligible and
+will be collected if their tag number is on the provided list.  If the list
+contains only VLAN tag number zero (0) then all tagged frames will be
+eligible.  The file descriptor opened for this interface can be returned in
+order to be used by
+.Xr select 2
+or in
+.Va drop_if
+as defined below.
+.It Va drop_if
+Removes the designated interface from further consideration or data collection.
+.It Va add_nf
+Adds a previously opened NCAP file as a data source.
+.It Va drop_nf
+Drops an NCAP file as a data source.
+.It Va add_pf
+Adds a previously opened PCAP file as a data source.
+.It Va drop_pf
+Drops an PCAP file as a data source.
+.It Va add_dg
+Adds a previously opened datagram socket as a data source.
+.It Va drop_dg
+Drops a datagram socket as a data source.
+.It Va watch_fd
+Adds a file descriptor to the set watched by
+.Va collect ,
+such that a readability event on this descriptor will result in the
+designated
+.Va watcher
+callback being activated with the supplied
+.Va closure .
+.It Va drop_fd
+Removes a file descriptor from the set being watched by
+.Va collect .
+.It Va filter
+Installs an NCAP filter, specified as ASCII text.  It is an error to install
+a filter if any interface has been added with a supplied BPF program.
+.It Va collect
+Run the data collection engine, either once (if polling) or continuously
+(until
+.Fn stop
+is called).  Each collected message will be formatted into an
+.Ft ncap_msg
+structure and, if no filter has been installed or if the message matches
+the installed filter, passed to the supplied callback along with the supplied
+.Va closure .
+.It Va stop
+Can be called from within a
+.Fn collect
+.Va callback
+or from within an operating system signal handler, this will end the loop
+inside
+.Fn collect .
+.It Va cons
+Returns a
+.Ft ncap_msg
+structure filled in according to the arguments.  It's wise to use this
+rather than doing inline initialization in case new fields are added to
+the
+.Ft ncap_msg
+structure later on.
+.It Va match
+Tests a supplied message against any installed filter.  Returns TRUE if no
+filter is installed or if the message matches the installed filter, else FALSE.
+.It Va write , Va fwrite , Va send
+Exports an
+.Va ncap_msg
+structure to a file descriptor, file pointer, or datagram socket in portable
+binary format.  If no message is supplied (e.g.,
+.Dv NULL )
+, a "file header" is output,
+containing a magic number and the
+.Nm ncap
+library version number.  A file header must be the first thing in an
+.Nm ncap
+file, and should be sent periodically on a datagram socket.  If the result is
+.It Va ncap_failure
+then
+.Xr errno
+will have been set by an underlying failed system call.
+.It Va destroy
+Release all resources held by this
+.Nm ncap
+object, including heap memory and underlying
+.Xr pcap 3
+objects.  Standard I/O files as provided to
+.Fn add_pf
+are not closed here and are the responsibility of the caller.
+.El
+.Sh "Message Formats"
+An in-memory
+.Nm
+message has the following structure:
+.Bd -literal -offset indent
+typedef enum { ncap_ip4 = 0, ncap_ip6 } ncap_np_e;
+typedef union ncap_np *ncap_np_t;
+typedef const union ncap_np *ncap_np_ct;
+union ncap_np {
+	struct {
+		struct in_addr src, dst;
+	} ip4;
+	struct {
+		struct in6_addr src, dst;
+	} ip6;
+};
+
+typedef enum { ncap_udp = 0, ncap_tcp } ncap_tp_e;
+typedef union ncap_tp *ncap_tp_t;
+typedef const union ncap_tp *ncap_tp_ct;
+union ncap_tp {
+	struct {
+		unsigned	sport, dport;
+	} udp;
+	struct {
+		unsigned	sport, dport;
+		unsigned	offset;
+		unsigned	flags;
+	} tcp;
+};
+#define	ncap_tcp_syn	0x0001	/* first segment */
+#define	ncap_tcp_fin	0x0002	/* last segment */
+#define	ncap_tcp_rst	0x0004	/* session reset */
+#define	ncap_tcp_sum	0x0008	/* checksum failed */
+
+typedef struct ncap_msg *ncap_msg_t;
+typedef const struct ncap_msg *ncap_msg_ct;
+struct ncap_msg {
+	/* Fixed part. */
+	struct timespec	ts;
+	unsigned	user1, user2;
+	ncap_np_e	np;
+	ncap_tp_e	tp;
+	size_t		paylen;
+	/* Variable part. */
+	union ncap_np	npu;
+	union ncap_tp	tpu;
+	const u_char *	payload;
+};
+.Ed
+.Pp
+The portable binary export format of an
+.Nm ncap
+message is as follows:
+.Bd -literal -offset indent
+Fixed part (size is 28):
+	uint32_t	message length (includes self, padding)
+	uint32_t	sec, nsec
+	uint32_t	user1, user2
+	uint16_t	network union type (includes padding)
+	uint16_t	transport union type (includes padding)
+	uint32_t	payload length (no padding)
+
+Variable part (size is always evenly divisible by 4):
+	u_char []	network union
+	u_char []	transport union
+	u_char []	payload
+.Ed
+.Pp
+Reliable streams of portable binary format
+.Nm ncap
+messages should begin with a "file header", and datagram streams should
+include a "file header" every so often for receiver synchronization.  A
+"file header" has the following structure:
+.Bl -tag -width indent -offset indent
+.It Va magic
+4 octets having the value of ASCII "NCAP".
+.It Va vers
+4 octets having the network byte order of the
+.Nm ncap
+version (currently 0x00 0x00 0x00 0x2a).
+.El
+.Sh SEE ALSO
+.Xr select 2 ,
+.Xr sendmsg 2 ,
+.Xr writev 2 ,
+.Xr pcap 3 ,
+.Xr fdopen 3 ,
+.Xr bpf 4
+.Sh BUGS
+.Nm
+filters are not implemented yet, so for now, use
+.Xr bpf 3
+filters in
+.Fn add_if .
+.Sh LICENSE
+Copyright (c) 2007 by Internet Systems Consortium, Inc. ("ISC")
+.Pp
+Permission to use, copy, modify, and/or distribute this software for any
+purpose with or without fee is hereby granted, provided that the above
+copyright notice and this permission notice appear in all copies.
+.Pp
+THE SOFTWARE IS PROVIDED "AS IS" AND ISC DISCLAIMS ALL WARRANTIES
+WITH REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED WARRANTIES OF
+MERCHANTABILITY AND FITNESS.  IN NO EVENT SHALL ISC BE LIABLE FOR
+ANY SPECIAL, DIRECT, INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES
+WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN
+ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT
+OF OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.

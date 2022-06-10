@@ -1,0 +1,17 @@
+pyncap - Python bindings for ISC's ncap library
+-----------------------------------------------
+
+You need Pyrex to compile this module.
+
+To build type,
+
+$ python setup.py build
+
+To install type,
+
+$ sudo python setup.py install
+
+-- 
+Niels Provos <provos@citi.umich.edu>
+http://www.citi.umich.edu/u/provos
+

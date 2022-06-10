@@ -1,0 +1,52 @@
+# $Id$
+
+* Design notes for NCAP filter specifications
+
+Generally, a filter specification is a sequence of filters, each being
+introduced by its family name and containing one or more family-specific
+rules.  The point isn't to duplicate what BPF can do, but rather to make
+it unnecessary to think in BPF.  NCAP filter specifications are application
+specific, and filter can internally generate BPF to save on context switches.
+
+* Filter Family: "dns"
+
+regex[=#]RE/opts
+	regex must match (or not) the presentation form of a message, with
+	options like "i" for ignore-case
+
+initiator[=#]address[,...]
+	message initiator must be (or not) on this list
+
+target[=#]address[,...]
+	message target must be (or not) on this list
+
+flags[=#]tc,aa,ra,rd,qr
+	these message flags must be set (or unset)
+
+rcode[=#]noerror,formerr,servfail,nxdomain,notimpl,refused
+	these message response codes are wanted (or unwanted)
+	(note, they are only checked on responses, not initiations)
+
+opcode[=#]query,update,notify
+	these message opcodes are wanted (or unwanted)
+
+qname=name
+    query name must match name
+
+qtype=rrtype
+    query type must match rrtype
+
+* Filter Family: "icmp"
+
+type[=#]echoreply,unreach,sourcequench,redirect,echorequest,routeradvert
+type[=#]routersolicit,timxceed,paramproblem,tstamprequest,tstampreply,
+type[=#]inforeq,inforeply,maskreq,maskreply,traceroute
+	these icmp types are wanted (or unwanted)
+
+type[=#]<type>
+	where <type> is an integer in the range 0..255
+	this icmp type is wanted (or unwanted)
+
+code[=#]<code>
+	where <code> is an integer in the range 0..255
+	this icmp code is wanted (or unwanted)
